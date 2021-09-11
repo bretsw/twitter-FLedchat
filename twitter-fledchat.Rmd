@@ -1,0 +1,129 @@
+---
+title: "Script for using the Academic Twitter API to Collect Historic Tweets"
+author: "K. Bret Staudt Willet"
+date: "`r Sys.time()`"
+---
+
+# Get set up
+
+This section loads the data and packages and starts to process the data.
+
+```{r packages, include=FALSE}
+library(tidyverse)
+library(anytime)
+library(lubridate)
+library(beepr)
+
+#devtools::install_github("cjbarrie/academictwitteR")
+library(academictwitteR)
+
+#devtools::install_github("bretsw/tidytags")
+library(tidytags)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE)
+usethis::use_git_ignore(c("*.csv", "*.rds", "*.log", "*.json"))
+```
+
+```{r, eval=FALSE}
+tweets_saved <- 
+        academictwitteR::get_all_tweets(
+                query = "#fledchat",  # this query is not case sensitive
+                n = 10000000,
+                page_n = 500,
+                start_tweet = "2006-03-21T00:00:00Z",  # date of Twitter launch
+                end_tweets = "2021-09-01T00:00:00Z", 
+                bearer_token = Sys.getenv("TWITTER_BEARER_TOKEN"), 
+                data_path = "FLedchat-data/"
+                )
+beepr::beep(8)
+```
+
+```{r, eval=FALSE}
+tweets_loaded <- 
+        academictwitteR::bind_tweets(data_path = "FLedchat-data/", 
+                                     output_format = "tidy")
+beepr::beep(8)
+```
+
+```{r, eval=FALSE}
+#fledchat_ids <- tweets_loaded %>% select(tweet_id)
+#write_csv(fledchat_ids, file = "fledchat-ids.csv")
+fledchat_ids_reloaded <- read_csv("fledchat-ids.csv", col_types = 'c')
+```
+
+```{r, eval=FALSE}
+fledchat_tweets <- 
+        tidytags::lookup_many_tweets(fledchat_ids_reloaded$tweet_id)
+
+saveRDS(fledchat_tweets, "fledchat-tweets.Rds")
+```
+
+```{r}
+fledchat_tweets0 <- readRDS("fledchat-tweets.Rds")
+```
+
+```{r}
+fledchat_tweets <-  
+        fledchat_tweets0 %>%
+        mutate(created_at = created_at %>% 
+                       as.numeric() %>% 
+                       anytime(asUTC = TRUE) %>% 
+                       as_datetime %>%
+                       ymd_hms() %>%
+                       with_tz(tzone = "US/Eastern"),
+               date = floor_date(created_at, 'day')
+        )
+rm(fledchat_tweets0)
+```
+
+```{r, message=FALSE}
+fledchat_dates <- fledchat_tweets %>% count(date)
+
+ggplot(fledchat_dates, aes(x = date, y = n)) +
+        geom_point() + 
+        geom_smooth() +
+        geom_vline(aes(xintercept = as.POSIXct("2020-03-11")),
+                   color = 'green') + 
+        xlab(NULL) +
+        ylab("Number of Tweets") +
+        ggtitle("#FLedchat tweets") +
+        theme_bw()
+```
+
+```{r, include=FALSE}
+ggsave(file="output/fledchat-all.png", width=8, height=4.5)
+```
+
+```{r, message=FALSE}
+fledchat_dates_by_type <- 
+  edchat_tweets %>% 
+  count(date, is_retweet) %>%
+  mutate(type = ifelse(is_retweet, 
+                       'retweets', 
+                       'original tweets')
+         )
+
+ggplot(fledchat_dates_by_type, aes(x = date, y = n, color = type)) +
+  geom_point() + 
+  geom_smooth() +
+  scale_colour_brewer(palette = "Set1") +
+  geom_vline(aes(xintercept = as.POSIXct("2020-03-11")),
+             color = 'green') + 
+  
+  xlab(NULL) +
+  ylab("Number of Tweets") +
+  ggtitle("#FLedchat tweets") +
+  theme_bw()
+```
+
+```{r, include=FALSE}
+ggsave(file="output/fledchat-by-type.png", width=8, height=4.5)
+```
+
+# Version/dependencies
+
+```{r session-info}
+sessionInfo()
+```
